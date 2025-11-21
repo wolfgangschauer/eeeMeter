@@ -1,0 +1,2 @@
+timestamp,device_ip,a_current,a_voltage,a_act_power,a_aprt_power,a_pf,a_freq,b_current,b_voltage,b_act_power,b_aprt_power,b_pf,b_freq,c_current,c_voltage,c_act_power,c_aprt_power,c_pf,c_freq
+2025-11-21T09:09:57.127119,192.168.178.58,0.655,229.8,69.4,150.6,0.46,50.0,0.66,229.0,47.9,151.4,0.32,50.0,10.02,227.7,2261.3,2284.4,0.99,50.0
