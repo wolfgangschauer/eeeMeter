@@ -7,12 +7,11 @@ import os
 from datetime import datetime
 
 # Shelly device IPs
-#shelly1_ip = "10.93.10.249"  # EEE-lab
-shelly1_ip = "192.168.178.58"  # Home
+shelly1_ip = "10.93.10.241"  # EEE-lab
+#shelly1_ip = "192.168.178.58"  # Home
 
 CSV_FILE = "shelly_data.csv"
 CSV_HEADERS = ["timestamp", "device_ip", "a_current", "a_voltage", "a_act_power", "a_aprt_power", "a_pf", "a_freq", "b_current", "b_voltage", "b_act_power", "b_aprt_power", "b_pf", "b_freq", "c_current", "c_voltage", "c_act_power", "c_aprt_power", "c_pf", "c_freq"]
-
 
 def write_to_csv(data: dict, ip: str) -> None:
     """Append Shelly EM status data to CSV file."""
@@ -22,7 +21,7 @@ def write_to_csv(data: dict, ip: str) -> None:
     timestamp = datetime.now().isoformat()
     row = {
         "timestamp": timestamp,
-        "device_ip": ip,
+        "device_id": ip,
         "a_current": data.get("a_current", ""),
         "a_voltage": data.get("a_voltage", ""),
         "a_act_power": data.get("a_act_power", ""),
@@ -65,11 +64,15 @@ def main():
         write_to_csv(shelly1_data, shelly1_ip)
     except requests.exceptions.RequestException as e:
         print(f"Error fetching data from Shelly device: {e}", file=sys.stderr)
-        sys.exit(1)
     except Exception as e:
         print(f"Unexpected error: {e}", file=sys.stderr)
-        sys.exit(1)
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        while True:
+            main()
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("\nShutdown requested by user.")
+        sys.exit(0)
