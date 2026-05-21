@@ -13,10 +13,10 @@ SHELLY_IPS = [f"10.93.10.{240 + i}" for i in range(10)]
 CSV_FILE = "shelly_data.csv"
 CSV_HEADERS = [
     "timestamp", "device_ip",
-    "a_current", "a_voltage", "a_act_power", "a_aprt_power", "a_pf", "a_freq",
-    "b_current", "b_voltage", "b_act_power", "b_aprt_power", "b_pf", "b_freq",
-    "c_current", "c_voltage", "c_act_power", "c_aprt_power", "c_pf", "c_freq",
-    "total_act_power", "total_aprt_power", "energy_kwh",
+    "a_current", "a_voltage", "a_act_power", "a_aprt_power", "a_pf", "a_freq", "a_energy_ws",
+    "b_current", "b_voltage", "b_act_power", "b_aprt_power", "b_pf", "b_freq", "b_energy_ws",
+    "c_current", "c_voltage", "c_act_power", "c_aprt_power", "c_pf", "c_freq", "c_energy_ws",
+    "total_act_power", "total_aprt_power", "total_energy_ws",
 ]
 
 def val(data, key):
@@ -27,8 +27,9 @@ def write_to_csv(data: dict, ip: str, interval: int) -> None:
     file_exists = os.path.isfile(CSV_FILE)
     timestamp = datetime.now().isoformat()
 
-    total_act = data.get("total_act_power")
-    energy_kwh = round(total_act * interval / 3_600_000, 6) if total_act is not None else ""
+    def energy(key):
+        p = data.get(key)
+        return round(p * interval, 3) if p is not None else ""
 
     row = {
         "timestamp": timestamp,
@@ -39,21 +40,24 @@ def write_to_csv(data: dict, ip: str, interval: int) -> None:
         "a_aprt_power": val(data, "a_aprt_power"),
         "a_pf": val(data, "a_pf"),
         "a_freq": val(data, "a_freq"),
+        "a_energy_ws": energy("a_act_power"),
         "b_current": val(data, "b_current"),
         "b_voltage": val(data, "b_voltage"),
         "b_act_power": val(data, "b_act_power"),
         "b_aprt_power": val(data, "b_aprt_power"),
         "b_pf": val(data, "b_pf"),
         "b_freq": val(data, "b_freq"),
+        "b_energy_ws": energy("b_act_power"),
         "c_current": val(data, "c_current"),
         "c_voltage": val(data, "c_voltage"),
         "c_act_power": val(data, "c_act_power"),
         "c_aprt_power": val(data, "c_aprt_power"),
         "c_pf": val(data, "c_pf"),
         "c_freq": val(data, "c_freq"),
+        "c_energy_ws": energy("c_act_power"),
         "total_act_power": val(data, "total_act_power"),
         "total_aprt_power": val(data, "total_aprt_power"),
-        "energy_kwh": energy_kwh,
+        "total_energy_ws": energy("total_act_power"),
     }
 
     with open(CSV_FILE, mode="a", newline="") as csvfile:
