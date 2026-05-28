@@ -1,208 +1,142 @@
-#!/usr/bin/env python3
-"""
-Shelly Energy Monitor
----------------------
-Polls Shelly 3-phase energy meter devices over HTTP,
-calculates energy consumed per phase and in total,
-and saves the results to a CSV file.
-"""
-
 import requests
 import sys
-import json
 import csv
 import os
 import time
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# ---------------------------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------------------------
+# Base IP — last octet is the device number (0–9)
+BASE_IP = "10.93.10.24"
+DEVICE_IDS = list(range(10))   # 0 → 10.93.10.240, …, 9 → 10.93.10.249
 
-# IP addresses of the 10 Shelly devices on the network (10.93.10.240 to .249)
-SHELLY_IPS = [f"10.93.10.{240 + i}" for i in range(10)]
-
-# Output CSV file where all readings are stored
-CSV_FILE = "shelly_data.csv"
-
-# Column names for the CSV file — one row is written per device per run
+CSV_FILE_2 = "shelly_data.csv"
 CSV_HEADERS = [
-    "timestamp",            # Date and time of the reading
-    "device_ip",            # IP address of the Shelly device
-
-    # Phase A measurements
-    "a_current",            # Current on phase A (Amperes)
-    "a_voltage",            # Voltage on phase A (Volts)
-    "a_act_power",          # Active (real) power on phase A (Watts)
-    "a_aprt_power",         # Apparent power on phase A (VA)
-    "a_pf",                 # Power factor on phase A (0 to 1)
-    "a_freq",               # Frequency on phase A (Hz)
-    "a_energy_ws",          # Energy consumed on phase A this interval (Watt-seconds)
-
-    # Phase B measurements
-    "b_current",
-    "b_voltage",
-    "b_act_power",
-    "b_aprt_power",
-    "b_pf",
-    "b_freq",
-    "b_energy_ws",          # Energy consumed on phase B this interval (Watt-seconds)
-
-    # Phase C measurements
-    "c_current",
-    "c_voltage",
-    "c_act_power",
-    "c_aprt_power",
-    "c_pf",
-    "c_freq",
-    "c_energy_ws",          # Energy consumed on phase C this interval (Watt-seconds)
-
-    # Totals across all 3 phases
-    "total_act_power",      # Total active power across all phases (Watts)
-    "total_aprt_power",     # Total apparent power across all phases (VA)
-    "total_energy_ws",      # Total energy consumed across all phases this interval (Watt-seconds)
+    "timestamp", "sample_index", "device_ip",
+    "a_current", "a_voltage", "a_act_power", "a_aprt_power", "a_pf", "a_freq",
+    "b_current", "b_voltage", "b_act_power", "b_aprt_power", "b_pf", "b_freq",
+    "c_current", "c_voltage", "c_act_power", "c_aprt_power", "c_pf", "c_freq",
 ]
 
+
 # ---------------------------------------------------------------------------
-# Helper functions
+# CSV helpers
 # ---------------------------------------------------------------------------
 
-def val(data: dict, key: str):
-    """
-    Safely read a value from the device response dictionary.
-    Returns an empty string if the key does not exist,
-    so the CSV cell is left blank instead of crashing.
-    """
-    v = data.get(key)
-    return "" if v is None else v
-
-
-def fetch_data(ip: str) -> dict:
-    """
-    Send an HTTP request to the Shelly device and return its response as a dictionary.
-    The endpoint EM.GetStatus returns all current electrical measurements.
-    Raises requests.exceptions.RequestException if the device is unreachable.
-    """
-    response = requests.get(
-        f"http://{ip}/rpc/EM.GetStatus?id=0",
-        timeout=5,
-    )
-    return response.json()
-
-
-def build_row(data: dict, ip: str, interval: int) -> dict:
-    """
-    Transform raw device data into a flat dictionary ready to be saved.
-
-    Energy is calculated as:
-        energy (Watt-seconds) = active_power (Watts) x interval (seconds)
-
-    This assumes power stayed roughly constant during the interval,
-    which is a standard approximation for periodic sampling.
-
-    Parameters:
-        data     — raw JSON response from the Shelly device
-        ip       — IP address of the device (stored for reference)
-        interval — seconds between readings (used to calculate energy)
-
-    Returns:
-        A dictionary with one value per CSV column.
-    """
-    timestamp = datetime.now().isoformat()
-
-    def energy(key: str):
-        """Calculate energy in Watt-seconds for the given power key."""
-        power = data.get(key)
-        return round(power * interval, 3) if power is not None else ""
-
-    return {
-        "timestamp":        timestamp,
-        "device_ip":        ip,
-
-        # Phase A
-        "a_current":        val(data, "a_current"),
-        "a_voltage":        val(data, "a_voltage"),
-        "a_act_power":      val(data, "a_act_power"),
-        "a_aprt_power":     val(data, "a_aprt_power"),
-        "a_pf":             val(data, "a_pf"),
-        "a_freq":           val(data, "a_freq"),
-        "a_energy_ws":      energy("a_act_power"),
-
-        # Phase B
-        "b_current":        val(data, "b_current"),
-        "b_voltage":        val(data, "b_voltage"),
-        "b_act_power":      val(data, "b_act_power"),
-        "b_aprt_power":     val(data, "b_aprt_power"),
-        "b_pf":             val(data, "b_pf"),
-        "b_freq":           val(data, "b_freq"),
-        "b_energy_ws":      energy("b_act_power"),
-
-        # Phase C
-        "c_current":        val(data, "c_current"),
-        "c_voltage":        val(data, "c_voltage"),
-        "c_act_power":      val(data, "c_act_power"),
-        "c_aprt_power":     val(data, "c_aprt_power"),
-        "c_pf":             val(data, "c_pf"),
-        "c_freq":           val(data, "c_freq"),
-        "c_energy_ws":      energy("c_act_power"),
-
-        # Totals
-        "total_act_power":  val(data, "total_act_power"),
-        "total_aprt_power": val(data, "total_aprt_power"),
-        "total_energy_ws":  energy("total_act_power"),
-    }
-
-
-def write_to_csv(row: dict) -> None:
-    """
-    Append a single row of measurements to the CSV file.
-    If the file does not exist yet, the header row is written first.
-
-    Note: to connect a database instead, replace this function with
-    a write_to_db(row) function that inserts the same dictionary.
-    """
-    file_exists = os.path.isfile(CSV_FILE)
-    with open(CSV_FILE, mode="a", newline="") as csvfile:
+def write_rows_to_csv(rows: list[dict]) -> None:
+    """Append a batch of rows to the CSV, writing the header only once."""
+    file_exists = os.path.isfile(CSV_FILE_2)
+    with open(CSV_FILE_2, mode="a", newline="") as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=CSV_HEADERS)
         if not file_exists:
             writer.writeheader()
-        writer.writerow(row)
-    print(f"  Data written to {CSV_FILE}")
+        writer.writerows(rows)
+
+
+def build_row(data: dict, ip: str, sample_index: int, timestamp: str) -> dict:
+    return {
+        "timestamp":    timestamp,
+        "sample_index": sample_index,
+        "device_ip":    ip,
+        "a_current":    data.get("a_current",    ""),
+        "a_voltage":    data.get("a_voltage",    ""),
+        "a_act_power":  data.get("a_act_power",  ""),
+        "a_aprt_power": data.get("a_aprt_power", ""),
+        "a_pf":         data.get("a_pf",         ""),
+        "a_freq":       data.get("a_freq",        ""),
+        "b_current":    data.get("b_current",    ""),
+        "b_voltage":    data.get("b_voltage",    ""),
+        "b_act_power":  data.get("b_act_power",  ""),
+        "b_aprt_power": data.get("b_aprt_power", ""),
+        "b_pf":         data.get("b_pf",         ""),
+        "b_freq":       data.get("b_freq",        ""),
+        "c_current":    data.get("c_current",    ""),
+        "c_voltage":    data.get("c_voltage",    ""),
+        "c_act_power":  data.get("c_act_power",  ""),
+        "c_aprt_power": data.get("c_aprt_power", ""),
+        "c_pf":         data.get("c_pf",         ""),
+        "c_freq":       data.get("c_freq",        ""),
+    }
+
 
 # ---------------------------------------------------------------------------
-# Main polling logic
+# Network
 # ---------------------------------------------------------------------------
 
-def main(interval: int) -> None:
-    """
-    Poll all Shelly devices once.
-    For each device: fetch data → build row → save to CSV.
-    Devices that are unreachable are skipped with a warning.
-    """
-    for ip in SHELLY_IPS:
-        try:
-            print(f"Fetching data from {ip}...")
-            data = fetch_data(ip)
-            print(f"  Raw data: {json.dumps(data, indent=2)}")
-            row = build_row(data, ip, interval)
-            write_to_csv(row)
-        except requests.exceptions.RequestException as e:
-            print(f"  Skipping {ip} — network error: {e}", file=sys.stderr)
-        except Exception as e:
-            print(f"  Skipping {ip} — unexpected error: {e}", file=sys.stderr)
+def fetch_device(ip: str) -> dict | None:
+    """Fetch EM status from one Shelly. Returns parsed JSON or None on error."""
+    try:
+        response = requests.get(
+            f"http://{ip}/rpc/EM.GetStatus?id=0",
+            headers={"Content-Type": "application/json"},
+            timeout=2,          # tight timeout so slow devices don't lag the round
+        )
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        print(f"  [WARN] {ip}: {e}", file=sys.stderr)
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+def main():
+    # --- user input -----------------------------------------------------------
+    try:
+        measurement_time = float(input("Measurement duration (seconds): ").strip())
+        if measurement_time <= 0:
+            raise ValueError
+    except ValueError:
+        print("Please enter a positive number.", file=sys.stderr)
+        sys.exit(1)
+
+    ips = [f"{BASE_IP}{d}" for d in DEVICE_IDS]
+
+    print(f"\nSampling {len(ips)} devices every ~1 s for {measurement_time} s")
+    print(f"Devices: {ips[0]} … {ips[-1]}")
+    print(f"Output : {CSV_FILE_2}\n")
+
+    sample_index = 0
+    start_time   = time.monotonic()
+
+    # ThreadPoolExecutor is created once and reused across all rounds
+    with ThreadPoolExecutor(max_workers=len(ips)) as executor:
+        while (elapsed := time.monotonic() - start_time) < measurement_time:
+            sample_index += 1
+            round_start  = time.monotonic()
+
+            # Shared timestamp stamped at the START of the round for all devices
+            timestamp = datetime.now().isoformat()
+
+            # Fire all 10 requests simultaneously
+            future_to_ip = {executor.submit(fetch_device, ip): ip for ip in ips}
+
+            rows = []
+            ok_count = 0
+            for future in as_completed(future_to_ip):
+                ip   = future_to_ip[future]
+                data = future.result()
+                if data is not None:
+                    rows.append(build_row(data, ip, sample_index, timestamp))
+                    ok_count += 1
+
+            # Sort rows by device so CSV order is deterministic per sample
+            rows.sort(key=lambda r: r["device_ip"])
+            write_rows_to_csv(rows)
+
+            round_duration = time.monotonic() - round_start
+            print(f"  Sample {sample_index:>4} | t={elapsed:6.1f}s | "
+                  f"{ok_count}/{len(ips)} devices OK | round took {round_duration*1000:.0f} ms")
+
+            # Sleep for the remainder of the 1-second window
+            sleep_for = 1.0 - round_duration
+            if sleep_for > 0:
+                time.sleep(sleep_for)
+
+    print(f"\nFinished. {sample_index} samples written to {CSV_FILE_2}")
 
 
 if __name__ == "__main__":
-    interval = int(input("Enter interval in seconds between each run (e.g. 300 for 5 min): "))
-    loops    = int(input("Enter number of times to run (0 = run forever): "))
-
-    count = 0
-    while True:
-        count += 1
-        print(f"\n--- Run {count} ---")
-        main(interval)
-        if loops != 0 and count >= loops:
-            print("Done.")
-            break
-        print(f"Waiting {interval} seconds...\n")
-        time.sleep(interval)
+    main()
