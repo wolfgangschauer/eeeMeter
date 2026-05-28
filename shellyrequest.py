@@ -197,7 +197,7 @@ if __name__ == "__main__":
     loops    = int(input("Enter number of times to run (0 = run forever): "))
 
     count = 0
-    while True:
+    while True:0
         count += 1
         print(f"\n--- Run {count} ---")
         main(interval)
