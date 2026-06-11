@@ -1,0 +1,48 @@
+import streamlit as st
+import sqlite3
+import pandas as pd
+
+# Connect to the same database used by iintegration.py
+database = sqlite3.connect("test.db")
+
+cursor = database.cursor()
+
+st.title("Shelly Energy Dashboard")
+
+# Get all table names
+cursor.execute(
+    "SELECT name FROM sqlite_master WHERE type='table';"
+)
+
+tables = [row[0] for row in cursor.fetchall()]
+
+st.write("Tables found:", tables)
+
+if not tables:
+    st.warning("No tables found in database.")
+    st.stop()
+
+# Dropdown
+selected_table = st.selectbox(
+    "Choose a table",
+    tables
+)
+
+# Read selected table
+query = f'SELECT * FROM "{selected_table}"'
+df = pd.read_sql_query(query, database)
+
+st.write(f"Rows: {len(df)}")
+
+st.dataframe(df)
+
+# Optional charts
+numeric_columns = df.select_dtypes(include=["number"]).columns
+
+if len(numeric_columns) > 0:
+    selected_column = st.selectbox(
+        "Choose a column to plot",
+        numeric_columns
+    )
+
+    st.line_chart(df[selected_column])
