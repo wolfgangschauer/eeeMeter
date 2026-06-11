@@ -160,14 +160,6 @@ def creating_tables():
         make_table = f'CREATE TABLE IF NOT EXISTS "{table_name}" ({", ".join(column_tuple)})'
         cursor.execute(make_table)
 
-
-
-
-
-
-
-
-
 #################################################################################################################
 
 def main(interval: int) -> None:
@@ -215,7 +207,9 @@ if __name__ == "__main__":
             break
         print(f"Waiting {interval} seconds...\n")
         time.sleep(interval)
+###################################################################################################################
 
+#for testing if the code works
 cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
 tables = cursor.fetchall()
 
