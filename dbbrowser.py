@@ -1,6 +1,6 @@
-import streamlit as st
+import streamlit as st  #add a hashtag ini front of this line when running to check database
 import sqlite3
-import pandas as pd
+import pandas as pd #add a hashtag ini front of this line when running to check database
 database = sqlite3.connect('test.db')
 
 cursor = database.cursor()
@@ -134,10 +134,10 @@ for table in tables:
    for row in rows:
      print(row)
 
-selected_table = st.selectbox("Choose a table", table_names_ip)
+selected_table = st.selectbox("Choose a table", table_names_ip) #add a hashtag ini front of this line when running to check database
 
-query = f'SELECT * FROM "{selected_table}"'
-df = pd.read_sql_query(query, database)
+query = f'SELECT * FROM "{selected_table}"' #add a hashtag ini front of this line when running to check database
+df = pd.read_sql_query(query, database) #add a hashtag ini front of this line when running to check database
 
-st.dataframe(df)
+st.dataframe(df) #add a hashtag ini front of this line when running to check database
 
