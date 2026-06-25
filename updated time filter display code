@@ -1,0 +1,86 @@
+import streamlit as st
+import sqlite3
+import pandas as pd
+
+# Connect to the same database used by integration.py
+database = sqlite3.connect("test.db")
+cursor = database.cursor()
+
+st.title("Shelly Energy Dashboard")
+
+# ---------------------------------------------------------------------------
+# Dropdown 1 — Select device (IP table)
+# ---------------------------------------------------------------------------
+
+cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+tables = tuple(row[0] for row in cursor.fetchall())
+
+if not tables:
+    st.warning("No tables found in database.")
+    st.stop()
+
+selected_table = st.selectbox("Choose a device (IP)", tables)
+
+# Load full table for the selected device
+query = f'SELECT * FROM "{selected_table}"'
+df = pd.read_sql_query(query, database)
+
+if df.empty:
+    st.warning("No data found for this device.")
+    st.stop()
+
+# ---------------------------------------------------------------------------
+# Dropdown 2 & 3 — Filter by date range (From → To)
+# ---------------------------------------------------------------------------
+
+available_dates = tuple(sorted(df["date"].unique()))
+
+from_date = st.selectbox("From date", available_dates, index=0)
+to_date   = st.selectbox("To date",   available_dates, index=len(available_dates) - 1)
+
+# Filter dataframe between the two selected dates
+df = df[(df["date"] >= from_date) & (df["date"] <= to_date)]
+
+if df.empty:
+    st.warning("No data found for this date range.")
+    st.stop()
+
+# ---------------------------------------------------------------------------
+# Dropdown 4 — Filter by time
+# ---------------------------------------------------------------------------
+
+selected_time = st.text_input(
+    """Enter start time (HH:MM:SS)
+leave blank for all rows""",
+    value=""
+)
+
+if selected_time.strip() == "":
+    selected_time = "00:00:00"
+
+df = df[
+    ((df["date"] == from_date) & (df["time"].str[:8] >= selected_time))
+    |
+    (df["date"] > from_date)
+]
+
+# ---------------------------------------------------------------------------
+# Show results
+# ---------------------------------------------------------------------------
+
+st.write(
+    f"Showing **{len(df)}** row(s) for device **{selected_table}** "
+    f"from **{from_date}** to **{to_date}** "
+    f"(first day starts from **{selected_time}**)"
+)
+st.dataframe(df)
+
+# ---------------------------------------------------------------------------
+# Optional chart
+# ---------------------------------------------------------------------------
+
+numeric_columns = df.select_dtypes(include=["number"]).columns
+
+if len(numeric_columns) > 0:
+    selected_column = st.selectbox("Choose a column to plot", numeric_columns)
+    st.line_chart(df.set_index("time")[selected_column])
