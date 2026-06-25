@@ -1,0 +1,54 @@
+import sqlite3
+import pandas as pd
+import streamlit as st
+
+st.title("Shelly Energy Dashboard")
+
+# ---------------------------------------------------------------------------
+# Controls (always visible)
+# ---------------------------------------------------------------------------
+
+cursor = sqlite3.connect("test.db").cursor()
+
+cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+tables = tuple(row[0] for row in cursor.fetchall())
+
+selected_table = st.selectbox("Choose a device (IP)", tables)
+
+available_dates = []  # will be filled after table load
+
+from_date = st.selectbox("From date", available_dates) if available_dates else None
+to_date = st.selectbox("To date", available_dates) if available_dates else None
+
+selected_time = st.text_input(
+    "Enter start time (HH:MM:SS)\nleave blank for all rows",
+    value=""
+).strip() or "00:00:00"
+
+# ---------------------------------------------------------------------------
+# Button
+# ---------------------------------------------------------------------------
+
+if st.button("Apply filters and show table"):
+    st.session_state["run_query"] = True
+
+# ---------------------------------------------------------------------------
+# Execution block
+# ---------------------------------------------------------------------------
+
+if st.session_state.get("run_query", False):
+
+    database = sqlite3.connect("test.db")
+
+    df = pd.read_sql_query(f'SELECT * FROM "{selected_table}"', database)
+
+    available_dates = tuple(sorted(df["date"].unique()))
+
+    df = df[
+        ((df["date"] == from_date) & (df["time"].str[:8] >= selected_time))
+        |
+        (df["date"] > from_date)
+    ]
+
+    st.write(f"Showing {len(df)} rows")
+    st.dataframe(df)
