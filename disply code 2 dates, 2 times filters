@@ -1,0 +1,97 @@
+import sqlite3
+import pandas as pd
+import streamlit as st
+
+st.title("Shelly Energy Dashboard")
+
+# ---------------------------------------------------------------------------
+# Load table list (always available)
+# ---------------------------------------------------------------------------
+
+database = sqlite3.connect("test.db")
+cursor = database.cursor()
+
+cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+tables = tuple(row[0] for row in cursor.fetchall())
+
+if not tables:
+    st.warning("No tables found in database.")
+    st.stop()
+
+# ---------------------------------------------------------------------------
+# DROPDOWN 1 — device
+# ---------------------------------------------------------------------------
+
+selected_table = st.selectbox("Choose a device (IP)", tables)
+
+# Load data ONLY after device selection (still not filtered yet)
+df = pd.read_sql_query(f'SELECT * FROM "{selected_table}"', database)
+
+if df.empty:
+    st.warning("No data found for this device.")
+    st.stop()
+
+# ---------------------------------------------------------------------------
+# DROPDOWN 2 & 3 — dates
+# ---------------------------------------------------------------------------
+
+available_dates = tuple(sorted(df["date"].unique()))
+
+from_date = st.selectbox("From date", available_dates, index=0)
+to_date   = st.selectbox("To date", available_dates, index=len(available_dates) - 1)
+
+# ---------------------------------------------------------------------------
+# TIME INPUTs
+# ---------------------------------------------------------------------------
+
+selected_start_time = st.text_input(
+    "Enter start time (HH:MM:SS)\nleave blank for all rowsfrom start of day",
+    value=""
+).strip() or "00:00:00"
+
+selected_end_time = st.text_input(
+    "Enter start time (HH:MM:SS)\nleave blank for all rows till end of the day",
+    value=""
+).strip() or "23:59:59"
+
+# ---------------------------------------------------------------------------
+# BUTTON
+# ---------------------------------------------------------------------------
+
+apply = st.button("Apply filters and show table")
+
+# ---------------------------------------------------------------------------
+# EXECUTION ONLY WHEN CLICKED
+# ---------------------------------------------------------------------------
+
+if apply:
+
+    df_filtered = df.copy()
+
+    df_filtered["time_clean"] = df_filtered["time"].str[:8]
+
+    # ---------------------------
+    # START FILTER (first day)
+    # ---------------------------
+    df_filtered = df_filtered[
+        ((df_filtered["date"] == from_date) & (df_filtered["time_clean"] >= selected_start_time))
+        |
+        (df_filtered["date"] > from_date)
+    ]
+
+    # ---------------------------
+    # END FILTER (last day)
+    # ---------------------------
+    df_filtered = df_filtered[
+        ((df_filtered["date"] == to_date) & (df_filtered["time_clean"] <= selected_end_time))
+        |
+        (df_filtered["date"] < to_date)
+    ]
+
+    st.write(
+        f"Showing **{len(df_filtered)}** rows for device **{selected_table}** "
+        f"from **{from_date} {selected_start_time}** "
+        f"to **{to_date} {selected_end_time}**"
+    )
+
+    st.dataframe(df_filtered)
